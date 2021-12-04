@@ -5,7 +5,7 @@
 Pour le DHT22, il s'agit de la bibliothèque Adafruit ```DHT Sensor Library```.
 Pour MQTT, il s'agit de la bibliothèque MQTT de Joel Gaehwiler qui s'appelle tout simplement MQTT.
 
-Les deux sont à installer via le gestionnaire de bibliothèsues de l'IDE Arduino)
+Les deux sont à installer via le gestionnaire de bibliothèques de l'IDE Arduino)
 
 ## Paramètres de connexion au WiFi
 
