@@ -15,4 +15,4 @@ Le sketch inclut le fichier ```Network.h``` qui doit contenir les paramètres de
 ln -s MyNetwork.h Network.h
 ```
 
-```Network.h``` et ```MyNetwork.h``` sont exclus du repository dans le ```.gitignore``` afin d'éviter de poussé le ssid et le mot de passe.
+```Network.h``` et ```MyNetwork.h``` sont exclus du repository dans le ```.gitignore``` afin d'éviter de pousser le ssid et le mot de passe dans l'espace public.
