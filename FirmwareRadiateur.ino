@@ -9,6 +9,7 @@
   ------------------------------------------------------------------------------
 */
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <MQTT.h>
 #include <DHT.h>
 #include "PeriodicLED.h"
@@ -76,7 +77,7 @@ const uint8_t pinDHT22 = 4;
 /*------------------------------------------------------------------------------
   Adresse IP du broker MQTT
 */
-const IPAddress brokerIP = IPAddress(192, 168, 1, 147);
+IPAddress brokerIP;
 
 /*------------------------------------------------------------------------------
   Objet pour la connexion WiFi
@@ -406,7 +407,7 @@ void setup() {
   activityLED.begin(LOW);
   /* Démarrage de l'action de contrôle du radiateur */
   heaterControlAction.begin(controlHeater);
-  /* Démarre l'action de contrôle de la publication des données */
+  /* Démarre l'action de publication des données */
   publishDataAction.begin(publishData);
   /* Démarre l'action de contrôle de la connexion Wifi */
   controlWiFiAction.begin(checkWiFi);
@@ -418,11 +419,16 @@ void setup() {
 
   /* Démarre le WiFi */
   WiFi.begin(ssid, pass);
+  connectWiFi();
+
+  /* Récupère l'adresse IP du Broker */
+  MDNS.begin(heaterId.c_str());
+  brokerIP = MDNS.queryHost("Arrakis");
+  
   /* Démarre le client MQTT */
   client.begin(brokerIP, net);
   client.onMessage(messageReceived);
 
-  connectWiFi();
   connectBroker();
 
   /* Marque l'instant initial pour les TimeObject */
