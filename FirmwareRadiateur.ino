@@ -1,7 +1,7 @@
 /*==============================================================================
   Firmware pour radiateur connecté
 
-  V 2.2
+  V 2.3
 
   Jean-Luc Béchennec - décembre 2021
 
