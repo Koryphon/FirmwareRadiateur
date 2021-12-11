@@ -1,21 +1,35 @@
 /*==============================================================================
   Firmware pour radiateur connecté
 
-  V 2.0
+  V 2.2
 
   Jean-Luc Béchennec - décembre 2021
 
   Pour l'instant les modes hors-gel et éco ne sont pas exploités.
   ------------------------------------------------------------------------------
+  Changelog :
+  2.3     ajout du redémarrage du système lorsqu'un trop grand nombre de 
+          tentatives de reconnexion ont été exécutées.
+  2.2     ajout de OTA (Over The Air) permettant la mise à jour du firmware
+          en WiFi.
+  2.1     ajout du support de mDNS (aka Bonjour sur Mac). Le Broker MQTT est
+          accessible via son nom Bonjour (<machine>.local) au lieu de son IP.
+  2.0     version initiale. MQTT, support des modes stop et confort.
 */
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <MQTT.h>
 #include <DHT.h>
+#include <ArduinoOTA.h>
+
 #include "PeriodicLED.h"
 #include "PeriodicAction.h"
 #include "Retryer.h"
 #include "Heater.h"
+
+/*------------------------------------------------------------------------------
+*/
+const String version = "2.2";
 
 /*------------------------------------------------------------------------------
   Définition des broches
@@ -70,6 +84,12 @@ const uint8_t pinAddr5 = 21;
 const uint8_t pinDHT22 = 4;
 
 /*------------------------------------------------------------------------------
+  Nombre d'essais de reconnexion pour le WiFi et le broker MQTT 
+ */
+const uint32_t wifiRetryCount = 10;
+const uint32_t brokerMQTTRetryCount = 60;
+
+/*------------------------------------------------------------------------------
   Paramètres de connexion au réseau WiFi de la maison
 */
 #include "Network.h"
@@ -107,6 +127,11 @@ PeriodicAction heaterControlAction(1000, 6000);
   la température ressentie, publication du ratio Confort / temps total
 */
 PeriodicAction publishDataAction(4000, 6000);
+
+/*------------------------------------------------------------------------------
+  Objet pour la publication de l'IP. Offset de 5000, période de 6000.
+*/
+PeriodicAction publishIPAction(5000, 6000);
 
 /*------------------------------------------------------------------------------
   Objet pour le contrôle de l'état de la connexion Wifi. Offset de 5500,
@@ -153,6 +178,11 @@ float setpointTemperature = 0.0;
 bool automaticMode = false;
 
 /*------------------------------------------------------------------------------
+  true si la publication de l'IP a été demandée
+*/
+bool IPRequested = false;
+
+/*------------------------------------------------------------------------------
   Identifiant du radiateur et des publications
 */
 String heaterId;
@@ -161,12 +191,23 @@ String heaterHumidity;
 String heaterHeatIndex;
 String heaterComfortRatio;
 String heaterState;
+String heaterIP;
 
 /*------------------------------------------------------------------------------
-  Identifiant du message de consigne et du message de mode
+  Identifiant du message de consigne, du message de mode et du message de
+  requête de l'IP
 */
 String messageSetpoint;
 String messageMode;
+String messageRequest;
+
+/*------------------------------------------------------------------------------
+  Objets comptant le nombre d'essais de reconnexions et redémarrant l'ESP
+  quand le nombre d'essais dépasse un seuil
+*/
+Retryer wifiRetryer(wifiRetryCount);
+Retryer brokerMQTTRetryer(brokerMQTTRetryCount);
+
 
 /*------------------------------------------------------------------------------
   Affiche un nombre entier positif sur le nombre minimum de caractères spécifiés
@@ -242,6 +283,24 @@ void publishData()
 }
 
 /*------------------------------------------------------------------------------
+  Publie l'adresse IP
+*/
+void publishIP()
+{
+  if (IPRequested) {
+    logTime();
+    if (client.connected()) {
+      Serial.println("Publication de l'IP !");
+      client.publish(heaterIP.c_str(), WiFi.localIP().toString().c_str());
+    }
+    else {
+      Serial.println("Client deconnecte, pas de publication d'IP.");
+    }
+    IPRequested = false;
+  }
+}
+
+/*------------------------------------------------------------------------------
   Commande le radiateur en fonction du mode et de la temperature de consigne
 */
 void controlHeater()
@@ -278,15 +337,20 @@ void checkWiFi()
     Serial.print("Tente une reconnexion à ");
     Serial.println(ssid);
     WiFi.disconnect();
-    WiFi.reconnect();
+    if (WiFi.reconnect()) {
+      wifiRetryer.reset();
+    }
+    else {
+      wifiRetryer.retry();
+    }
   }
   else {
     Serial.println("WiFi ok !");
   }
-  /* 
-   * TODO : compter le nombre de tentatives de reconnexion consécutives qui
-   * échouent et redémarrer l'ESP quand un seuil est dépassé. 
-   */
+  /*
+     TODO : compter le nombre de tentatives de reconnexion consécutives qui
+     échouent et redémarrer l'ESP quand un seuil est dépassé.
+  */
 }
 
 /*------------------------------------------------------------------------------
@@ -301,10 +365,10 @@ void checkMQTT()
     logTime();
     Serial.println("MQTT ok !");
   }
-  /* 
-   * TODO : compter le nombre de tentatives de reconnexion consécutives qui
-   * échouent et redémarrer l'ESP quand un seuil est dépassé. 
-   */
+  /*
+     TODO : compter le nombre de tentatives de reconnexion consécutives qui
+     échouent et redémarrer l'ESP quand un seuil est dépassé.
+  */
 }
 
 /*------------------------------------------------------------------------------
@@ -321,6 +385,16 @@ void connectWiFi() {
 }
 
 /*------------------------------------------------------------------------------
+  Met en place les abonnements
+*/
+void doSubscriptions()
+{
+  client.subscribe(messageSetpoint.c_str());
+  client.subscribe(messageMode.c_str());
+  client.subscribe(messageRequest.c_str());
+}
+
+/*------------------------------------------------------------------------------
   Connexion au broker MQTT
 */
 void connectBroker()
@@ -331,11 +405,8 @@ void connectBroker()
     Serial.print(".");
     delay(1000);
   }
-
   Serial.println(" connecte");
-
-  client.subscribe(messageSetpoint.c_str());
-  client.subscribe(messageMode.c_str());
+  doSubscriptions();
 }
 
 /*------------------------------------------------------------------------------
@@ -344,11 +415,14 @@ void connectBroker()
 void reconnectBroker()
 {
   logTime();
-  Serial.println("reconnexion au serveur MQTT");
+  Serial.println("Reconnexion au serveur MQTT");
   if (client.connect(heaterId.c_str(), "public", "public")) {
     Serial.println(" connecte");
-    client.subscribe(messageSetpoint.c_str());
-    client.subscribe(messageMode.c_str());
+    doSubscriptions();
+    brokerMQTTRetryer.reset();
+  }
+  else {
+    brokerMQTTRetryer.retry();
   }
 }
 
@@ -382,24 +456,99 @@ void messageReceived(String &topic, String &payload)
       automaticMode = true;
     }
   }
+  else if (topic == messageRequest) {
+    if (payload == "IP") {
+      Serial.println("Requete de l'IP");
+      IPRequested = true;
+    }
+  }
 }
 
+/*------------------------------------------------------------------------------
+  OTA
+*/
+void startOTA()
+{
+  const int command = ArduinoOTA.getCommand();
+  if (command == U_FLASH)
+  {
+    Serial.println("Mise a jour du firmware");
+  }
+  else {
+    Serial.print("Commande non supportee : ");
+    Serial.println(command);
+  }
+}
+
+void progressOTA(unsigned int progress, unsigned int total)
+{
+  static int lastProgress = -1;
+  if (progress != lastProgress) {
+    Serial.print("En cours : ");
+    Serial.print(100 * progress / total);
+    Serial.print("%\r");
+  }
+}
+
+void endOTA()
+{
+  Serial.println();
+  Serial.println("Fini");
+}
+
+void errorOTA(ota_error_t error)
+{
+  Serial.print("Erreur[");
+  Serial.print(error);
+  Serial.print("] : ");
+  switch (error) {
+    case OTA_AUTH_ERROR:    Serial.println("L'authentification a échoué"); break;
+    case OTA_BEGIN_ERROR:   Serial.println("Échec au début");              break;
+    case OTA_CONNECT_ERROR: Serial.println("Échec à la connexion");        break;
+    case OTA_RECEIVE_ERROR: Serial.println("Échec à la réception");        break;
+    case OTA_END_ERROR:     Serial.println("Échec à la fermeture");        break;
+  }
+}
+
+void initOTA()
+{
+  ArduinoOTA.setHostname(heaterId.c_str());
+  ArduinoOTA.setPasswordHash(passHash);
+  ArduinoOTA.onStart(startOTA);
+  ArduinoOTA.onProgress(progressOTA);
+  ArduinoOTA.onEnd(endOTA);
+  ArduinoOTA.onError(errorOTA);
+  ArduinoOTA.begin();
+}
+
+/*------------------------------------------------------------------------------
+  setup
+*/
 void setup() {
 
   /* la LED de la carte est utilisée pour signaler le fonctionnement */
   pinMode(LED_BUILTIN, OUTPUT);
   /* Pour le debug */
   Serial.begin(115200);
+  /* Version */
+  Serial.println("--------------------------------");
+  Serial.print("Firmware version ");
+  Serial.println(version);
+  Serial.println("--------------------------------");
+
   /* calcule l'identifiant du radiateur et
-     les identifiants des données publiées */
+    les identifiants des données publiées */
   heaterId = String("heater") + readHeaterNum();
   heaterTemperature = heaterId + "/temperature";
   heaterHumidity = heaterId + "/humidity";
   heaterHeatIndex = heaterId + "/heatIndex";
   heaterComfortRatio = heaterId + "/comfortRatio";
   heaterState = heaterId + "/state";
+  heaterIP = heaterId + "/IP";
+
   messageSetpoint = heaterId + "/setpoint";
   messageMode = heaterId + "/mode";
+  messageRequest = heaterId + "/request";
 
   /* Init du radiateur */
   heater.begin();
@@ -409,6 +558,8 @@ void setup() {
   heaterControlAction.begin(controlHeater);
   /* Démarre l'action de publication des données */
   publishDataAction.begin(publishData);
+  /* Démarre l'action de publication des données */
+  publishIPAction.begin(publishIP);
   /* Démarre l'action de contrôle de la connexion Wifi */
   controlWiFiAction.begin(checkWiFi);
   /* Démarre l'action de contrôle de la connexion au broker MQTT */
@@ -423,21 +574,29 @@ void setup() {
 
   /* Récupère l'adresse IP du Broker */
   MDNS.begin(heaterId.c_str());
-  brokerIP = MDNS.queryHost("Arrakis");
-  
+  brokerIP = MDNS.queryHost(brokerName);
+
   /* Démarre le client MQTT */
   client.begin(brokerIP, net);
   client.onMessage(messageReceived);
 
   connectBroker();
 
+  /* Initialisation de l'OTA */
+  initOTA();
+
   /* Marque l'instant initial pour les TimeObject */
   TimeObject::setup();
 }
 
+/*------------------------------------------------------------------------------
+  loop
+*/
 void loop() {
   /* Client MQTT */
   client.loop();
   /* Actions périodiques */
   TimeObject::loop();
+  /* OTA */
+  ArduinoOTA.handle();
 }

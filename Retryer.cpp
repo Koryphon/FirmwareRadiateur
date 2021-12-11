@@ -5,7 +5,9 @@
 */
 void Retryer::retry()
 {
-  delay(mDelay);
+  if (mRetryCount == 0) {
+    mRetrySegmentCount++;
+  }
   mRetryCount++;
   if (mRetryCount > mCountLimit) {
     ESP.restart();
