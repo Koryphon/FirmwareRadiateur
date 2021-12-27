@@ -1,53 +1,68 @@
-/*
-  Classe Heater.
-
-  - pilotage du radiateur via le fil pilote en fonction de l'état demandé.
-  - mémorisation de l'état du radiateur
-  - mémorisation du temps cumulé passé dans chaque état (en ms sur 64 bits)
-  - % de temps passé en mode confort.
-*/
+/*==============================================================================
+ * Class Heater.
+ *
+ * - control of the heater via the pilot wire according to the requested state.
+ * - storage of the state of the heater.
+ * - storage of the cumulated time spent in each state (in ms on 64 bits)
+ * - % of time spent in comfort mode.
+ */
 
 #ifndef __HEATER_H__
 #define __HEATER_H__
 
+#include "BitRingBuf.h"
+#include <WString.h>
 #include <stdint.h>
 
-class Heater
-{
-    typedef enum { STOP, COMFORT, ANTI, ECO } HeaterState;
-    uint64_t mTimeStop;
-    uint64_t mTimeComfort;
-    uint64_t mTimeAntifreeze;
-    uint64_t mTimeEco;
-    HeaterState mState;
-    uint64_t mDateChangedState;
-    uint32_t mLastRefresh;
-    uint64_t mDate;
-    uint8_t mPinStop;
-    uint8_t mPinAntifreeze;
+class Heater {
+public:
+  typedef enum { STOP, AUTO, ANTI, ECO } HeaterState;
 
-    void refreshDate();
-    void changeStateTo(const HeaterState inState);
-    uint64_t totalTime();
+private:
+  /* mHistory stores the satisfaction history of the setpoint */
+  BitRingBuf<600> mHistory;
+  /* State of the heater */
+  HeaterState mState;
+  /* Room temperature and setpoint temperature */
+  float mRoomTemperature;
+  float mSetpointTemperature;
+  /* Pins */
+  uint8_t mPinStop;
+  uint8_t mPinAntifreeze;
+  const uint8_t *const mPinAddr;
+  /* Heater Num */
+  uint8_t mNum;
+  /* Heater Id */
+  String mId;
 
-  public:
-    Heater(const uint8_t inPinStop, const uint8_t inPinAntifreeze);
-    void begin();
-    void setStop();
-    void setComfort();
-    void setAntifreeze();
-    void setEco();
-    HeaterState state() const;
-    const char * const stringState() const;
-    uint64_t accumulatedTimeStop();
-    uint64_t accumulatedTimeComfort();
-    uint64_t accumulatedTimeAntifreeze();
-    uint64_t accumulatedTimeEco();
-    uint64_t currentTimeStop();
-    uint64_t currentTimeComfort();
-    uint64_t currentTimeAntifreeze();
-    uint64_t currentTimeEco();
-    float comfortRatio();
+  void changeStateTo(const HeaterState inState);
+  void readHeaterNum();
+  void stop();
+  void comfort();
+  void antifreeze();
+  void eco();
+
+public:
+  Heater(const uint8_t *const inPinAddr, const uint8_t inPinStop,
+         const uint8_t inPinAntifreeze);
+  void begin();
+  void setStop();
+  void setAuto();
+  void setAntifreeze();
+  void setEco();
+  void setMode(const HeaterState inMode);
+  void setSetpoint(const float inSetpoint) {
+    mSetpointTemperature = inSetpoint;
+  }
+  void setRoomTemperature(const float inRoomTemperature) {
+    mRoomTemperature = inRoomTemperature;
+  }
+  void loop();
+  uint32_t num() const { return mNum; }
+  const String &id() const { return mId; }
+  HeaterState state() const { return mState; }
+  const char *const stringState() const;
+  uint32_t duty() const { return mHistory.loadAverage(); }
 };
 
 #endif

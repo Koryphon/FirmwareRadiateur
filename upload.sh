@@ -5,7 +5,7 @@
 # Si le script a deux arguments, il s'agit d'une série de radiateurs
 #
 
-espota=~/Library/Arduino15/packages/esp32/hardware/esp32/2.0.0/tools/espota.py
+espota=~/Library/Arduino15/packages/esp32/hardware/esp32/2.0.2/tools/espota.py
 firmware=FirmwareRadiateur.ino.mhetesp32minikit.bin
 
 if [ ! -f "$firmware" ]

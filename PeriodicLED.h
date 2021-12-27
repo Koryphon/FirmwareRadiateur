@@ -7,19 +7,20 @@
 
 #include "TimeObject.h"
 
-class PeriodicLED : public TimeObject
-{
-    uint32_t mPeriod;
-    uint32_t mOnTime;
-    uint8_t mLEDPin;
-    uint8_t mLEDState;
-    uint8_t mInitialLEDState;
-    
-    virtual void execute();
+class PeriodicLED : public TimeObject {
+  uint32_t mPeriod;
+  uint32_t mDuty;
+  uint8_t mLEDPin;
+  uint8_t mLEDState;
+  uint8_t mInitialLEDState;
 
-  public:
-    PeriodicLED(const uint8_t inLEDPin, const uint32_t inPeriod, const uint32_t inOnTime);
-    void begin(const uint8_t inInitialLEDState);
+  virtual void execute();
+
+public:
+  PeriodicLED(const uint8_t inLEDPin, const uint32_t inPeriod,
+              const uint32_t inDuty);
+  void begin(const uint8_t inInitialLEDState);
+  void setPeriodAndDuty(const uint32_t inPeriod, const uint32_t inDuty);
 };
 
 #endif
