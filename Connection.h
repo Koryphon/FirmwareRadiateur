@@ -2,6 +2,7 @@
 #define __CONNECTION_H__
 
 #include <Arduino.h>
+#include <ArduinoOTA.h>
 #include <ESPmDNS.h>
 #include <PubSubClient.h>
 #include <WiFi.h>
@@ -16,7 +17,15 @@ extern String messageRequest;
 
 class Connection {
 public:
-  typedef enum { INIT, WIFI_STBY, OFFLINE, WIFI_OK, MDNS_OK, MQTT_OK } State;
+  typedef enum {
+    INIT,
+    WIFI_STBY,
+    OFFLINE,
+    WIFI_OK,
+    MDNS_OK,
+    OTA_OK,
+    MQTT_OK
+  } State;
 
 private:
   static WiFiClient sNet;
@@ -28,6 +37,11 @@ private:
 
   static void doSubscriptions();
   static void callback(char *inTopic, byte *inPayload, unsigned int inLength);
+  static void startOTA();
+  static void progressOTA(unsigned int progress, unsigned int total);
+  static void endOTA();
+  static void errorOTA(ota_error_t error);
+  static void initOTA();
 
 public:
   static bool isOnline();

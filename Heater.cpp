@@ -20,7 +20,7 @@ void Heater::readHeaterNum() {
   }
   LOGT;
   DEBUG_P("Numero radiateur : ");
-  DEBUG_P(num);
+  DEBUG_PLN(num);
   mNum = num;
 }
 

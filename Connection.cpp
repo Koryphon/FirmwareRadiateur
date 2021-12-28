@@ -80,6 +80,66 @@ void Connection::callback(char *inTopic, byte *inPayload,
 bool Connection::isOnline() { return (sState == MQTT_OK); }
 
 /*------------------------------------------------------------------------------
+ *  OTA
+ */
+void Connection::startOTA() {
+  const int command = ArduinoOTA.getCommand();
+  if (command == U_FLASH) {
+    Serial.println("Mise a jour du firmware");
+  } else {
+    Serial.print("Commande non supportee : ");
+    Serial.println(command);
+  }
+}
+
+void Connection::progressOTA(unsigned int progress, unsigned int total) {
+  static int lastProgress = -1;
+  if (progress != lastProgress) {
+    Serial.print("En cours : ");
+    Serial.print(100 * progress / total);
+    Serial.print("%\r");
+  }
+}
+
+void Connection::endOTA() {
+  Serial.println();
+  Serial.println("Fini");
+}
+
+void Connection::errorOTA(ota_error_t error) {
+  Serial.print("Erreur[");
+  Serial.print(error);
+  Serial.print("] : ");
+  switch (error) {
+  case OTA_AUTH_ERROR:
+    Serial.println("L'authentification a échoué");
+    break;
+  case OTA_BEGIN_ERROR:
+    Serial.println("Échec au début");
+    break;
+  case OTA_CONNECT_ERROR:
+    Serial.println("Échec à la connexion");
+    break;
+  case OTA_RECEIVE_ERROR:
+    Serial.println("Échec à la réception");
+    break;
+  case OTA_END_ERROR:
+    Serial.println("Échec à la fermeture");
+    break;
+  }
+}
+
+void Connection::initOTA() {
+  ArduinoOTA.setHostname(heaterId.c_str());
+  ArduinoOTA.setPasswordHash(passHash);
+  ArduinoOTA.onStart(startOTA);
+  ArduinoOTA.onProgress(progressOTA);
+  ArduinoOTA.onEnd(endOTA);
+  ArduinoOTA.onError(errorOTA);
+  ArduinoOTA.begin();
+}
+
+/*------------------------------------------------------------------------------
  * Updates heater status based on network connection status.
  * Attempts to reconnect as needed.
  */
@@ -89,6 +149,7 @@ void Connection::update() {
   case INIT:
     /* Initial state after (re)boot. initialize the WiFi connection */
     WiFi.mode(WIFI_STA);
+    WiFi.setHostname(heaterId.c_str());
     WiFi.begin(ssid, pass);
     sState = WIFI_STBY;
     break;
@@ -157,6 +218,18 @@ void Connection::update() {
   case MDNS_OK:
     LOGT;
     if (WiFi.status() == WL_CONNECTED) {
+      DEBUG_PLN("Démarrage de l'OTA");
+      initOTA();
+      sState = OTA_OK;
+    } else {
+      DEBUG_PLN("WiFi deconnecte");
+      sState = OFFLINE;
+    }
+    break;
+
+  case OTA_OK:
+    LOGT;
+    if (WiFi.status() == WL_CONNECTED) {
       DEBUG_P("Connexion au broker MQTT ");
       DEBUG_P(brokerName);
       DEBUG_P(".local (");
@@ -175,6 +248,7 @@ void Connection::update() {
       }
     } else {
       DEBUG_PLN("WiFi deconnecte");
+      ArduinoOTA.end();
       sState = OFFLINE;
     }
     break;
@@ -183,6 +257,7 @@ void Connection::update() {
     if (WiFi.status() != WL_CONNECTED) {
       LOGT;
       DEBUG_PLN("WiFi deconnecte");
+      ArduinoOTA.end();
       sState = OFFLINE;
     } else if (!sClient.connected()) {
       LOGT;

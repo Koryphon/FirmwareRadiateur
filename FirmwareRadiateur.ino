@@ -20,7 +20,6 @@
  *        IP.
  * - 2.0  initial version. MQTT, support of stop and comfort modes.
  */
-#include <ArduinoOTA.h>
 #include <DHT.h>
 
 #include "Config.h"
@@ -33,7 +32,7 @@
 
 /*------------------------------------------------------------------------------
  */
-const String version = "2.4";
+const String version = "2.5";
 
 /*------------------------------------------------------------------------------
  *  Settings for connecting to the home WiFi network
@@ -183,6 +182,11 @@ void controlHeater() {
       heater.setEco();
     }
   } else {
+    LOGT;
+    DEBUG_P("DHT22 ok : t = ");
+    DEBUG_P(t);
+    DEBUG_P(", h = ");
+    DEBUG_PLN(h);
     temperature = t;
     humidity = h;
     heatIndex = dht.computeHeatIndex(temperature, humidity, false);
@@ -252,66 +256,6 @@ void messageReceived(const String &topic, const String &payload) {
 }
 
 /*------------------------------------------------------------------------------
- *  OTA
- */
-void startOTA() {
-  const int command = ArduinoOTA.getCommand();
-  if (command == U_FLASH) {
-    Serial.println("Mise a jour du firmware");
-  } else {
-    Serial.print("Commande non supportee : ");
-    Serial.println(command);
-  }
-}
-
-void progressOTA(unsigned int progress, unsigned int total) {
-  static int lastProgress = -1;
-  if (progress != lastProgress) {
-    Serial.print("En cours : ");
-    Serial.print(100 * progress / total);
-    Serial.print("%\r");
-  }
-}
-
-void endOTA() {
-  Serial.println();
-  Serial.println("Fini");
-}
-
-void errorOTA(ota_error_t error) {
-  Serial.print("Erreur[");
-  Serial.print(error);
-  Serial.print("] : ");
-  switch (error) {
-  case OTA_AUTH_ERROR:
-    Serial.println("L'authentification a échoué");
-    break;
-  case OTA_BEGIN_ERROR:
-    Serial.println("Échec au début");
-    break;
-  case OTA_CONNECT_ERROR:
-    Serial.println("Échec à la connexion");
-    break;
-  case OTA_RECEIVE_ERROR:
-    Serial.println("Échec à la réception");
-    break;
-  case OTA_END_ERROR:
-    Serial.println("Échec à la fermeture");
-    break;
-  }
-}
-
-void initOTA() {
-  ArduinoOTA.setHostname(heaterId.c_str());
-  ArduinoOTA.setPasswordHash(passHash);
-  ArduinoOTA.onStart(startOTA);
-  ArduinoOTA.onProgress(progressOTA);
-  ArduinoOTA.onEnd(endOTA);
-  ArduinoOTA.onError(errorOTA);
-  ArduinoOTA.begin();
-}
-
-/*------------------------------------------------------------------------------
  * setup
  */
 void setup() {
@@ -357,7 +301,7 @@ void setup() {
   dht.begin();
 
   /* OTA initialization */
-  initOTA();
+  // initOTA();
 
   /* Mark the initial time for the TimeObject.s */
   TimeObject::setup();
