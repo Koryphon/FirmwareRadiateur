@@ -6,7 +6,7 @@
 void Retryer::retry()
 {
   const uint32_t currentDate = millis();
-  if ((currentDate - mLastRetryDate) < mRetryInterval) {
+  if (mRetryInterval == 0 || (currentDate - mLastRetryDate) < mRetryInterval) {
     if (mRetryCount == 0) {
       mRetrySegmentCount++;
     }

@@ -300,8 +300,8 @@ void setup() {
   /* Start the DHT22 */
   dht.begin();
 
-  /* OTA initialization */
-  // initOTA();
+  /* Connection initialization */
+  Connection::begin(heaterId);
 
   /* Mark the initial time for the TimeObject.s */
   TimeObject::setup();

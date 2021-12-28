@@ -32,6 +32,7 @@ private:
   static PubSubClient sClient;
   static IPAddress sBrokerIP;
   static State sState;
+  static String sName;
 
   Connection() {} /* prevent instanciation */
 
@@ -44,6 +45,7 @@ private:
   static void initOTA();
 
 public:
+  static void begin(String &inName);
   static bool isOnline();
   static void update();
   static void loop();

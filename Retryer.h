@@ -16,7 +16,7 @@ class Retryer
     uint32_t mRetryInterval;
 
   public:
-    Retryer(const uint32_t inCountLimit, const uint32_t inRetryInterval = UINT32_MAX)
+    Retryer(const uint32_t inCountLimit, const uint32_t inRetryInterval = 0ul)
       : mRetryCount(0ul), mCountLimit(inCountLimit), 
         mRetrySegmentCount(0ul), mLastRetryDate(0ul), mRetryInterval(inRetryInterval) {}
     void retry();

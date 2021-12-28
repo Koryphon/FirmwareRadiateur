@@ -1,7 +1,6 @@
 #include "Connection.h"
 #include "Config.h"
 #include "Debug.h"
-#include "Heater.h"
 #include "Network.h"
 #include "Retryer.h"
 
@@ -21,7 +20,6 @@ Retryer mqttReconnectCount(brokerMQTTRetryCount, 10000);
 extern String messageSetpoint;
 extern String messageMode;
 extern String messageRequest;
-extern String heaterId;
 
 /*------------------------------------------------------------------------------
  * handler for MQTT incoming messages
@@ -47,6 +45,16 @@ IPAddress Connection::sBrokerIP;
  * State of the connection
  */
 Connection::State Connection::sState = INIT;
+
+/*------------------------------------------------------------------------------
+ * Name of the node
+ */
+String Connection::sName = "";
+
+/*------------------------------------------------------------------------------
+ * sets up the connection
+ */
+void Connection::begin(String &inName) { sName = inName; }
 
 /*------------------------------------------------------------------------------
  * Sets up subscriptions
@@ -130,7 +138,7 @@ void Connection::errorOTA(ota_error_t error) {
 }
 
 void Connection::initOTA() {
-  ArduinoOTA.setHostname(heaterId.c_str());
+  ArduinoOTA.setHostname(sName.c_str());
   ArduinoOTA.setPasswordHash(passHash);
   ArduinoOTA.onStart(startOTA);
   ArduinoOTA.onProgress(progressOTA);
@@ -149,7 +157,9 @@ void Connection::update() {
   case INIT:
     /* Initial state after (re)boot. initialize the WiFi connection */
     WiFi.mode(WIFI_STA);
-    WiFi.setHostname(heaterId.c_str());
+    if (sName != "") {
+      WiFi.setHostname(sName.c_str());
+    }
     WiFi.begin(ssid, pass);
     sState = WIFI_STBY;
     break;
@@ -167,7 +177,9 @@ void Connection::update() {
       DEBUG_PLN("connecte");
       wifiRetryer.reset();
       /* Start the multicast DNS */
-      MDNS.begin(heaterId.c_str());
+      if (sName != "") {
+        MDNS.begin(sName.c_str());
+      }
       sState = WIFI_OK;
     }
     break;
@@ -235,7 +247,7 @@ void Connection::update() {
       DEBUG_P(".local (");
       DEBUG_DO(sBrokerIP.printTo(Serial));
       DEBUG_P(") - ");
-      if (!sClient.connect(heaterId.c_str())) { //, "public", "public")) {
+      if (!sClient.connect(sName.c_str())) {
         DEBUG_P("echec : ");
         DEBUG_PLN(sClient.state());
         brokerMQTTRetryer.retry();
