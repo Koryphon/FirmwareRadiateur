@@ -102,7 +102,13 @@ public:
     }
   }
 
-  uint32_t loadAverage() const { return 100 * onCount() / mSize; }
+  uint32_t loadAverage() const {
+    if (mSize > 0) {
+      return 100 * onCount() / mSize;
+    } else {
+      return 0;
+    }
+  }
 };
 
 #ifdef DOW

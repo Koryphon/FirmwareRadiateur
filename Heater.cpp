@@ -16,7 +16,10 @@ Heater::Heater(const uint8_t *const inPinAddr, const uint8_t inPinStop,
 void Heater::readHeaterNum() {
   uint8_t num = 0;
   for (uint32_t pinIdx = 0; pinIdx < 6; pinIdx++) {
-    num |= digitalRead(mPinAddr[pinIdx]) << pinIdx;
+    pinMode(mPinAddr[pinIdx], INPUT_PULLUP);
+  }
+  for (uint32_t pinIdx = 0; pinIdx < 6; pinIdx++) {
+    num |= (!digitalRead(mPinAddr[pinIdx])) << pinIdx;
   }
   LOGT;
   DEBUG_P("Numero radiateur : ");
