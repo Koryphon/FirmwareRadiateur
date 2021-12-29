@@ -28,11 +28,14 @@ public:
   } State;
 
 private:
+  typedef void (*SubscriptionFunction)() ;
+
   static WiFiClient sNet;
   static PubSubClient sClient;
   static IPAddress sBrokerIP;
   static State sState;
   static String sName;
+  static SubscriptionFunction sSubs;
 
   Connection() {} /* prevent instanciation */
 
@@ -45,12 +48,13 @@ private:
   static void initOTA();
 
 public:
-  static void begin(String &inName);
+  static void begin(String &inName, SubscriptionFunction inSubFunction = NULL);
   static bool isOnline();
   static void update();
   static void loop();
   static void publish(const String &inTopic, const String &inPayload);
   static void publish(const String &inTopic, const char *inPayload);
+  static void subscribe(const String &inTopic);
 };
 
 #endif

@@ -52,17 +52,25 @@ Connection::State Connection::sState = INIT;
 String Connection::sName = "";
 
 /*------------------------------------------------------------------------------
+ * Function pointer to call user subscriptions function
+ */
+Connection::SubscriptionFunction Connection::sSubs = NULL;
+
+/*------------------------------------------------------------------------------
  * sets up the connection
  */
-void Connection::begin(String &inName) { sName = inName; }
+void Connection::begin(String &inName, SubscriptionFunction inSubFunction) {
+  sName = inName;
+  sSubs = inSubFunction;
+}
 
 /*------------------------------------------------------------------------------
  * Sets up subscriptions
  */
 void Connection::doSubscriptions() {
-  sClient.subscribe(messageSetpoint.c_str());
-  sClient.subscribe(messageMode.c_str());
-  sClient.subscribe(messageRequest.c_str());
+  if (sSubs != NULL) {
+    sSubs();
+  }
 }
 
 /*------------------------------------------------------------------------------
@@ -299,4 +307,10 @@ void Connection::publish(const String &inTopic, const char *inPayload) {
   if (sClient.connected()) {
     sClient.publish(inTopic.c_str(), inPayload);
   }
+}
+
+/*------------------------------------------------------------------------------
+ */
+void Connection::subscribe(const String &inTopic) {
+  sClient.subscribe(inTopic.c_str());
 }

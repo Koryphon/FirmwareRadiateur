@@ -90,6 +90,7 @@ Timeout brokerTimeout(kMQTTBrokerTimeout);
 float temperature = 0.0;
 float humidity = 0.0;
 float heatIndex = 0.0;
+float temperatureOffset = 0.0;
 
 /*------------------------------------------------------------------------------
  * Setpoint temperature
@@ -124,6 +125,7 @@ String heaterIP;
 String messageSetpoint;
 String messageMode;
 String messageRequest;
+String messageOffset;
 
 /*------------------------------------------------------------------------------
  * Publishes current values of temperature, humidity and heat index
@@ -183,12 +185,14 @@ void controlHeater() {
     }
   } else {
     LOGT;
+    temperature = t + temperatureOffset;
+    humidity = h;
     DEBUG_P("DHT22 ok : t = ");
     DEBUG_P(t);
+    DEBUG_P(", tc = ");
+    DEBUG_P(temperature);
     DEBUG_P(", h = ");
-    DEBUG_PLN(h);
-    temperature = t;
-    humidity = h;
+    DEBUG_PLN(humidity);
     heatIndex = dht.computeHeatIndex(temperature, humidity, false);
     heater.setRoomTemperature(temperature);
 
@@ -249,10 +253,27 @@ void messageReceived(const String &topic, const String &payload) {
     }
   } else if (topic == messageRequest) {
     if (payload == "IP") {
-      Serial.println("Requete de l'IP");
+      LOGT;
+      DEBUG_PLN("Requete de l'IP");
       IPRequested = true;
     }
+  } else if (topic == messageOffset) {
+    float o = payload.toFloat();
+    LOGT;
+    DEBUG_P("Offset temperature = ");
+    DEBUG_PLN(o);
+    temperatureOffset = o;
   }
+}
+
+/*------------------------------------------------------------------------------
+ * All subscriptions
+ */
+void performSubscriptions() {
+  Connection::subscribe(messageSetpoint);
+  Connection::subscribe(messageMode);
+  Connection::subscribe(messageRequest);
+  Connection::subscribe(messageOffset);
 }
 
 /*------------------------------------------------------------------------------
@@ -285,6 +306,7 @@ void setup() {
   messageSetpoint = heaterId + "/setpoint";
   messageMode = heaterId + "/mode";
   messageRequest = heaterId + "/request";
+  messageOffset = heaterId + "/offset";
 
   /* Starts the activity LED */
   activityLED.begin(LOW);
@@ -301,7 +323,7 @@ void setup() {
   dht.begin();
 
   /* Connection initialization */
-  Connection::begin(heaterId);
+  Connection::begin(heaterId, performSubscriptions);
 
   /* Mark the initial time for the TimeObject.s */
   TimeObject::setup();
