@@ -1,12 +1,14 @@
 /*==============================================================================
  * Connected heater firmware
  *
- * V 2.5
+ * V 2.6
  *
  * Jean-Luc Béchennec - December 2021
  *
  *------------------------------------------------------------------------------
  * Changelog :
+ * - 2.6  bug fix. In connection automaton, losing the MQTT connection
+ *        would lead to state MDNS_OK instead of OTA_OK.
  * - 2.5  added timeout, new connection maintenance, eco and antifreeze
  *        mode management
  * - 2.4  added stop mode management for the
@@ -32,7 +34,7 @@
 
 /*------------------------------------------------------------------------------
  */
-const String version = "2.5";
+const String version = "2.6";
 
 /*------------------------------------------------------------------------------
  *  Settings for connecting to the home WiFi network
@@ -270,6 +272,8 @@ void messageReceived(const String &topic, const String &payload) {
  * All subscriptions
  */
 void performSubscriptions() {
+  LOGT;
+  DEBUG_PLN("Souscriptions");
   Connection::subscribe(messageSetpoint);
   Connection::subscribe(messageMode);
   Connection::subscribe(messageRequest);

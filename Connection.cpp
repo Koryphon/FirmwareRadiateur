@@ -283,7 +283,7 @@ void Connection::update() {
       LOGT;
       DEBUG_P("Broker MQTT deconnecte : ");
       DEBUG_PLN(sClient.state());
-      sState = MDNS_OK;
+      sState = OTA_OK;
     }
     break;
   }
