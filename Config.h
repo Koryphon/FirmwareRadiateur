@@ -86,4 +86,10 @@ static const uint32_t kMQTTBrokerTimeout = 1000ul * 60ul;
  */
 static const float kDefaultTemperature = 18.0;
 
+/*------------------------------------------------------------------------------
+ * Preferences namespace name and keys
+ */
+static const char *const kPrefNamespaceName = "FirmRad";
+static const char *const kTemperatureOffsetKey = "TOff";
+
 #endif

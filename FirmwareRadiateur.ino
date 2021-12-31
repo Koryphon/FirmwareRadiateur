@@ -1,12 +1,14 @@
 /*==============================================================================
  * Connected heater firmware
  *
- * V 2.6
+ * V 2.7
  *
  * Jean-Luc Béchennec - December 2021
  *
  *------------------------------------------------------------------------------
  * Changelog :
+ * - 2.7  added offset storage in Preferences to get the corrected temperature
+ *        when offline
  * - 2.6  bug fix. In connection automaton, losing the MQTT connection
  *        would lead to state MDNS_OK instead of OTA_OK.
  * - 2.5  added timeout, new connection maintenance, eco and antifreeze
@@ -23,6 +25,7 @@
  * - 2.0  initial version. MQTT, support of stop and comfort modes.
  */
 #include <DHT.h>
+#include <Preferences.h>
 
 #include "Config.h"
 #include "Connection.h"
@@ -34,12 +37,17 @@
 
 /*------------------------------------------------------------------------------
  */
-const String version = "2.6";
+const String version = "2.7";
 
 /*------------------------------------------------------------------------------
  *  Settings for connecting to the home WiFi network
  */
 #include "Network.h"
+
+/*------------------------------------------------------------------------------
+ * Object to manage preferences
+ */
+Preferences prefs;
 
 /*------------------------------------------------------------------------------
  * Object for the activity LED. Period of 1000 ms, pulse of 100 ms
@@ -263,8 +271,15 @@ void messageReceived(const String &topic, const String &payload) {
     float o = payload.toFloat();
     LOGT;
     DEBUG_P("Offset temperature = ");
-    DEBUG_PLN(o);
-    temperatureOffset = o;
+    DEBUG_P(o);
+    if (o != temperatureOffset) {
+      DEBUG_P(", Mise a jour de l'offset");
+      temperatureOffset = o;
+      prefs.begin(kPrefNamespaceName, false); /* Open in RW mode */
+      prefs.putFloat(kTemperatureOffsetKey, temperatureOffset);
+      prefs.end();
+    }
+    DEBUG_PLN();
   }
 }
 
@@ -322,6 +337,14 @@ void setup() {
   publishIPAction.begin(publishIP);
   /* Starts the WiFi and MQTT connection control action */
   controlConnectionAction.begin(Connection::update);
+
+  /* Get the offset from the preferences */
+  prefs.begin(kPrefNamespaceName, true); /* Open in RO mode */
+  temperatureOffset = prefs.getFloat(kTemperatureOffsetKey, 0.0);
+  LOGT;
+  DEBUG_P("Pref TOff : ");
+  DEBUG_PLN(temperatureOffset);
+  prefs.end();
 
   /* Start the DHT22 */
   dht.begin();
