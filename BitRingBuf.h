@@ -102,9 +102,9 @@ public:
     }
   }
 
-  uint32_t loadAverage() const {
+  float loadAverage() const {
     if (mSize > 0) {
-      return 100 * onCount() / mSize;
+      return 100.0 * (float)onCount() / (float)mSize;
     } else {
       return 0;
     }

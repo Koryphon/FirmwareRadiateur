@@ -11,6 +11,8 @@
 #define __HEATER_H__
 
 #include "BitRingBuf.h"
+#include "TemperatureHistory.h"
+#include "HeatingHistory.h"
 #include <WString.h>
 #include <stdint.h>
 
@@ -20,12 +22,27 @@ public:
 
 private:
   /* mHistory stores the satisfaction history of the setpoint */
-  BitRingBuf<600> mHistory;
+  HeatingHistory mHistory;
   /* State of the heater */
   HeaterState mState;
   /* Room temperature and setpoint temperature */
   float mRoomTemperature;
   float mSetpointTemperature;
+  TemperatureHistory tempHistory;
+
+  float mProportionalCoeff;
+  float mIntegralCoeff;
+  float mDerivativeCoeff;
+  float mIntegralComponent;
+  float mLastMeanTemperature;
+  float mDerivative;
+  float mPWMDuty;
+  float mPWMOffset;
+
+  uint32_t mActualPWM;
+  uint32_t mPWMCycle;
+  uint32_t mPWMCounter;
+
   /* Pins */
   uint8_t mPinStop;
   uint8_t mPinAntifreeze;
@@ -45,7 +62,7 @@ private:
 public:
   Heater(const uint8_t *const inPinAddr, const uint8_t inPinStop,
          const uint8_t inPinAntifreeze);
-  void begin();
+  void begin(const float inDefaultRoomTemperature);
   void setStop();
   void setAuto();
   void setAntifreeze();
@@ -56,13 +73,23 @@ public:
   }
   void setRoomTemperature(const float inRoomTemperature) {
     mRoomTemperature = inRoomTemperature;
+    tempHistory.add(inRoomTemperature);
   }
   void loop();
-  uint32_t num() const { return mNum; }
-  const String &id() const { return mId; }
-  HeaterState state() const { return mState; }
+  uint32_t num() const        { return mNum; }
+  const String &id() const    { return mId; }
+  HeaterState state() const   { return mState; }
+  float pwmDuty()             { return mPWMDuty; }
+  float integralComponent()   { return mIntegralComponent; }
+  uint32_t actualPWM()        { return mActualPWM; }
+  uint32_t pwmCounter()       { return mPWMCounter; }
+  uint32_t pwmCycle()         { return mPWMCycle; }
+  float meanRoomTemperature() { return tempHistory.mean(); }
+  float derivative()          { return mDerivative; }
+  float shortTermEnergy()     { return mHistory.shortTermEnergy(); }
+  float averageTermEnergy()   { return mHistory.averageTermEnergy(); }
+  float longTermEnergy()      { return mHistory.longTermEnergy(); }
   const char *const stringState() const;
-  uint32_t duty() const { return mHistory.loadAverage(); }
 };
 
 #endif

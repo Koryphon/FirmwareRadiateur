@@ -1,3 +1,4 @@
+#include "Config.h"
 #include "Heater.h"
 #include "Debug.h"
 #include <Arduino.h>
@@ -7,7 +8,11 @@
 Heater::Heater(const uint8_t *const inPinAddr, const uint8_t inPinStop,
                const uint8_t inPinAntifreeze)
     : mPinStop(inPinStop), mPinAntifreeze(inPinAntifreeze),
-      mPinAddr(inPinAddr) {
+      mPinAddr(inPinAddr), mProportionalCoeff(kProportionalParameter), 
+      mIntegralCoeff(kIntegralParameter),
+      mDerivativeCoeff(kDerivativeParameter), mIntegralComponent(0.0), 
+      mLastMeanTemperature(kDefaultTemperature), mPWMOffset(k50PercentPWM), 
+      mPWMCycle(kHeatingSlots), mPWMCounter(0) {
   setEco();
 }
 
@@ -54,7 +59,8 @@ void Heater::eco() {
 
 /*------------------------------------------------------------------------------
  */
-void Heater::begin() {
+void Heater::begin(const float inDefaultRoomTemperature) {
+  mRoomTemperature = inDefaultRoomTemperature;
   readHeaterNum();
   pinMode(mPinStop, OUTPUT);
   pinMode(mPinAntifreeze, OUTPUT);
@@ -66,6 +72,9 @@ void Heater::begin() {
 void Heater::changeStateTo(const HeaterState inState) {
   if (inState != mState) {
     mState = inState;
+    if (inState == AUTO) {
+      mPWMCounter = 0;
+    }
   }
 }
 
@@ -80,7 +89,6 @@ void Heater::setStop() {
  */
 void Heater::setAuto() {
   changeStateTo(AUTO);
-  stop();
 }
 
 /*------------------------------------------------------------------------------
@@ -123,13 +131,50 @@ void Heater::setMode(const HeaterState inMode) {
  */
 void Heater::loop() {
   if (mState == AUTO) {
-    if (mRoomTemperature < mSetpointTemperature) {
+    if (mPWMCounter == 0) {
+      /* Start of a PWM cycle */
+      float currentTemperature = meanRoomTemperature();
+      float error = mSetpointTemperature - currentTemperature;
+      mIntegralComponent += error; 
+      mDerivative = currentTemperature - mLastMeanTemperature;
+      mLastMeanTemperature = currentTemperature;
+      /* 
+       * When we reach an integral component that corresponds to the dynamics
+       * of the PWM, we limit. 
+       */
+      if (abs(mIntegralComponent * mIntegralCoeff) > mPWMOffset) {
+        if (mIntegralComponent > 0) {
+          mIntegralComponent = mPWMOffset / mIntegralCoeff;
+        } else {
+          mIntegralComponent = - mPWMOffset / mIntegralCoeff;
+        }
+      }
+      
+      mPWMDuty = (error * mProportionalCoeff) +
+                 (mIntegralComponent * mIntegralCoeff) -
+                 (mDerivative * mDerivativeCoeff) +
+                 mPWMOffset + 0.5;
+      int32_t pwm = mPWMDuty;
+      if (pwm < 0) {
+        pwm = 0;
+      } else if (pwm > mPWMCycle) {
+        pwm = mPWMCycle;
+      }
+      mActualPWM = pwm;
+
+    }
+
+    Serial.print("Compteur="); Serial.print(mPWMCounter); Serial.print(", PWM="); Serial.println(mActualPWM); 
+    
+    if (mPWMCounter < mActualPWM) {
       comfort();
       mHistory.push(1);
     } else {
       stop();
       mHistory.push(0);
     }
+
+    mPWMCounter = (mPWMCounter >= (mPWMCycle - 1)) ? 0 : mPWMCounter + 1;
   }
 }
 

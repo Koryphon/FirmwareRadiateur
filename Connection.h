@@ -28,7 +28,8 @@ public:
   } State;
 
 private:
-  typedef void (*SubscriptionFunction)() ;
+  typedef void (*SubscriptionFunction)();
+  typedef void (*MessageHandlingFunction)(const String &, const String &);
 
   static WiFiClient sNet;
   static PubSubClient sClient;
@@ -36,6 +37,7 @@ private:
   static State sState;
   static String sName;
   static SubscriptionFunction sSubs;
+  static MessageHandlingFunction sHandler;
 
   Connection() {} /* prevent instanciation */
 
@@ -48,7 +50,7 @@ private:
   static void initOTA();
 
 public:
-  static void begin(String &inName, SubscriptionFunction inSubFunction = NULL);
+  static void begin(String &inName, SubscriptionFunction inSubFunction = NULL, MessageHandlingFunction inHandler = NULL);
   static bool isOnline();
   static void update();
   static void loop();

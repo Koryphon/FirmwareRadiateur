@@ -1,12 +1,26 @@
 /*==============================================================================
  * Connected heater firmware
  *
- * V 2.7
+ * V 2.14
  *
- * Jean-Luc Béchennec - December 2021
+ * Jean-Luc Béchennec - January 2021
  *
  *------------------------------------------------------------------------------
  * Changelog :
+ * - 2.14 BitRingBuffer::loadAverage computed as float
+ * - 2.13 Added temperature manual setpoint adjustement.
+ * - 2.12 Switched to a 30s PWM period to reduce the temperature range of the
+ *        heating element of the heater and thus avoid rattling. Added history
+ *        of energy used.
+ * - 2.11 Switched from all-or-nothing control to PI. Added message to signal
+ *        a ventilation so that all heaters are off (temporary).
+ * - 2.10 move OTA handle in Connection::loop()
+ * - 2.9  incoming message handling function is no longer wired in Connection
+ *        class so that Connection class can be used in other projects.
+ * - 2.8  change of the publication format. From now on, two messages are
+ *        sent. The first one is the temperature, the second one includes the
+ *        following data: state,temperature,humidity,heatindex,duty. Subject
+ *        to change for debugging purpose.
  * - 2.7  added offset storage in Preferences to get the corrected temperature
  *        when offline
  * - 2.6  bug fix. In connection automaton, losing the MQTT connection
@@ -37,7 +51,7 @@
 
 /*------------------------------------------------------------------------------
  */
-const String version = "2.7";
+const String version = "2.13";
 
 /*------------------------------------------------------------------------------
  *  Settings for connecting to the home WiFi network
@@ -55,18 +69,32 @@ Preferences prefs;
 PeriodicLED activityLED(LED_BUILTIN, 1000, 100);
 
 /*------------------------------------------------------------------------------
- * Object for heater control. Offset of 1000, period of 6000.
+ * Object for heater command. Offset of 1000.
  * Temperature retrieval, comparison with the setpoint,
  * Choice of heater in Stop or Comfort mode.
  */
-PeriodicAction heaterControlAction(1000, 6000);
+PeriodicAction heaterCommandAction(
+  1000,
+  kHeatingPeriod / kTemperatureMeasurementSlots
+);
 
 /*------------------------------------------------------------------------------
- * Object for data publication. Offset of 4000, period of 6000.
+ * Object for heater control: microcycle of the PWM.
+ */
+ PeriodicAction heaterControlAction(
+   1000,
+   kHeatingSlotDuration
+ );
+
+/*------------------------------------------------------------------------------
+ * Object for data publication. Offset of 4000.
  * Publication of the temperature, publication of the humidity, publication of
  * the perceived temperature, publication of the ratio Comfort / total time
  */
-PeriodicAction publishDataAction(4000, 6000);
+PeriodicAction publishDataAction(
+  4000,
+  kHeatingPeriod / kTemperatureMeasurementSlots
+);
 
 /*------------------------------------------------------------------------------
  * Object for the publication of the IP. Offset of 5000, period of 6000.
@@ -103,14 +131,20 @@ float heatIndex = 0.0;
 float temperatureOffset = 0.0;
 
 /*------------------------------------------------------------------------------
- * Setpoint temperature
+ * Setpoint temperature and offset.
  */
 float setpointTemperature = 18.0;
+float setpointOffset = 0.0;
 
 /*------------------------------------------------------------------------------
  * Status requested for the heater, received from the broker.
  */
 Heater::HeaterState functioningMode = Heater::ECO;
+
+/*------------------------------------------------------------------------------
+ * Ventilation command
+ */
+bool ventilation = false;
 
 /*------------------------------------------------------------------------------
  * true if the publication of the IP has been requested
@@ -121,21 +155,21 @@ bool IPRequested = false;
  * Identifier of the heater and publications
  */
 String heaterId;
+String heaterStatus;
 String heaterTemperature;
-String heaterHumidity;
-String heaterHeatIndex;
-String heaterDuty;
-String heaterState;
 String heaterIP;
+String heaterVentAck;
 
 /*------------------------------------------------------------------------------
  * Identifier of the setpoint message, the mode message and the
  * request message
  */
 String messageSetpoint;
+String messageSetpointOffset;
 String messageMode;
 String messageRequest;
 String messageOffset;
+String messageVentilation;
 
 /*------------------------------------------------------------------------------
  * Publishes current values of temperature, humidity and heat index
@@ -144,11 +178,36 @@ void publishData() {
   LOGT;
   if (Connection::isOnline()) {
     DEBUG_PLN("Publication des donnees !");
-    Connection::publish(heaterTemperature, String(temperature));
-    Connection::publish(heaterHumidity, String(humidity));
-    Connection::publish(heaterHeatIndex, String(heatIndex));
-    Connection::publish(heaterDuty, String(heater.duty()));
-    Connection::publish(heaterState, heater.stringState());
+    String data(heater.stringState());
+    data += ',';
+    data += temperature;
+    data += ',';
+    data += humidity;
+    data += ',';
+    data += heatIndex;
+    data += ',';
+    data += heater.shortTermEnergy();
+    data += '/';
+    data += heater.averageTermEnergy();
+    data += '/';
+    data += heater.longTermEnergy();
+    data += ", CON=";
+    data += setpointTemperature + setpointOffset;
+    data += ", VENT=";
+    data += ventilation;
+    data += ", MEAN=";
+    data += heater.meanRoomTemperature();
+    data += ", DRV=";
+    data += heater.derivative();
+    data += ", CI=";
+    data += heater.integralComponent();
+    data += ", PWM=";
+    data += 100 * (float)heater.actualPWM() / (float)heater.pwmCycle();
+    data += "%, CNT=";
+    data += heater.pwmCounter();    
+    Connection::publish(heaterStatus, data);
+    Connection::publish(heaterTemperature, String(heater.meanRoomTemperature()));
+    Connection::publish(heaterVentAck, String(ventilation ? 1 : 0));
   } else {
     DEBUG_PLN("Client deconnecte, pas de publication.");
   }
@@ -171,51 +230,61 @@ void publishIP() {
 }
 
 /*------------------------------------------------------------------------------
- * Controls the heater according to the mode and temperature set point
+ * Command the heater according to the mode and temperature set point
  */
-void controlHeater() {
-  /* reads temperature and humidity, computes heat index */
-  float t = dht.readTemperature();
-  float h = dht.readHumidity();
-  if (isnan(t) || isnan(h)) {
-    LOGT;
-    DEBUG_PLN("DHT22 off");
-    /* In case of sensor malfunction, we check the connection */
-    if (Connection::isOnline() && brokerTimeout.isNotTimedout()) {
-      /* If online, we check the functioning mode */
-      if (functioningMode != Heater::AUTO) {
-        heater.setMode(functioningMode);
+void commandHeater() {
+  if (ventilation) {
+    heater.setStop();
+  } else {
+    /* reads temperature and humidity, computes heat index */
+    float t = dht.readTemperature();
+    float h = dht.readHumidity();
+    if (isnan(t) || isnan(h)) {
+      LOGT;
+      DEBUG_PLN("DHT22 off");
+      /* In case of sensor malfunction, we check the connection */
+      if (Connection::isOnline() && brokerTimeout.isNotTimedout()) {
+        /* If online, we check the functioning mode */
+        if (functioningMode != Heater::AUTO) {
+          heater.setMode(functioningMode);
+        } else {
+          /* Auto cannot be applied because the sensor is off, fallback to eco */
+          heater.setEco();
+        }
       } else {
-        /* Auto cannot be applied because the sensor is off, fallback to eco */
+        /* Nothing working, fallback to echo */
         heater.setEco();
       }
     } else {
-      /* Nothing working, fallback to echo */
-      heater.setEco();
-    }
-  } else {
-    LOGT;
-    temperature = t + temperatureOffset;
-    humidity = h;
-    DEBUG_P("DHT22 ok : t = ");
-    DEBUG_P(t);
-    DEBUG_P(", tc = ");
-    DEBUG_P(temperature);
-    DEBUG_P(", h = ");
-    DEBUG_PLN(humidity);
-    heatIndex = dht.computeHeatIndex(temperature, humidity, false);
-    heater.setRoomTemperature(temperature);
-
-    if (Connection::isOnline() && brokerTimeout.isNotTimedout()) {
-      /* sensor and connection ok, apply the command */
-      heater.setSetpoint(setpointTemperature);
-      heater.setMode(functioningMode);
-    } else {
-      /* sensor ok but connection lost, set temperature to default one */
-      heater.setSetpoint(kDefaultTemperature);
-      heater.setAuto();
+      LOGT;
+      temperature = t + temperatureOffset;
+      humidity = h;
+      DEBUG_P("DHT22 ok : t = ");
+      DEBUG_P(t);
+      DEBUG_P(", tc = ");
+      DEBUG_P(temperature);
+      DEBUG_P(", h = ");
+      DEBUG_PLN(humidity);
+      heatIndex = dht.computeHeatIndex(temperature, humidity, false);
+      heater.setRoomTemperature(temperature);
+  
+      if (Connection::isOnline() && brokerTimeout.isNotTimedout()) {
+        /* sensor and connection ok, apply the command */
+        heater.setSetpoint(setpointTemperature + setpointOffset);
+        heater.setMode(functioningMode);
+      } else {
+        /* sensor ok but connection lost, set temperature to default one */
+        heater.setSetpoint(kDefaultTemperature + setpointOffset);
+        heater.setAuto();
+      }
     }
   }
+}
+
+/*------------------------------------------------------------------------------
+ * Control heater
+ */
+void controlHeater() {
   heater.loop();
 }
 
@@ -240,6 +309,12 @@ void messageReceived(const String &topic, const String &payload) {
       DEBUG_PLN(t);
       setpointTemperature = t;
     }
+  } else if (topic == messageSetpointOffset) {
+    float t = payload.toFloat();
+    LOGT;
+    DEBUG_P("Offset de consigne = ");
+    DEBUG_PLN(t);
+    setpointOffset = t;
   } else if (topic == messageMode) {
     if (payload == "stop") {
       LOGT;
@@ -280,6 +355,12 @@ void messageReceived(const String &topic, const String &payload) {
       prefs.end();
     }
     DEBUG_PLN();
+  } else if (topic == messageVentilation) {
+    int i = payload.toInt();
+    ventilation = i == 1 ? true : false;
+    LOGT;
+    DEBUG_P("Ordre de ventilation = ");
+    DEBUG_PLN(ventilation);
   }
 }
 
@@ -293,6 +374,8 @@ void performSubscriptions() {
   Connection::subscribe(messageMode);
   Connection::subscribe(messageRequest);
   Connection::subscribe(messageOffset);
+  Connection::subscribe(messageVentilation);
+  Connection::subscribe(messageSetpointOffset);
 }
 
 /*------------------------------------------------------------------------------
@@ -311,25 +394,28 @@ void setup() {
   Serial.println("--------------------------------");
 
   /* The heater */
-  heater.begin();
+  heater.begin(kDefaultTemperature);
 
   /* calculates the heater identifier and the topics of the published data */
   heaterId = String("heater") + heater.num();
+  heaterStatus = heaterId + "/status";
   heaterTemperature = heaterId + "/temperature";
-  heaterHumidity = heaterId + "/humidity";
-  heaterHeatIndex = heaterId + "/heatIndex";
-  heaterDuty = heaterId + "/duty";
-  heaterState = heaterId + "/state";
   heaterIP = heaterId + "/IP";
 
   messageSetpoint = heaterId + "/setpoint";
+  messageSetpointOffset = heaterId + "/spoffset";
   messageMode = heaterId + "/mode";
   messageRequest = heaterId + "/request";
   messageOffset = heaterId + "/offset";
+  heaterVentAck = heaterId + "/ventack";
+
+  messageVentilation = "allHeaters/ventilation";
 
   /* Starts the activity LED */
   activityLED.begin(LOW);
-  /* Start of the heater control action */
+  /* Starts of the heater command action */
+  heaterCommandAction.begin(commandHeater);
+  /* Starts oh the heater control action */
   heaterControlAction.begin(controlHeater);
   /* Starts the data publishing action */
   publishDataAction.begin(publishData);
@@ -350,7 +436,7 @@ void setup() {
   dht.begin();
 
   /* Connection initialization */
-  Connection::begin(heaterId, performSubscriptions);
+  Connection::begin(heaterId, performSubscriptions, messageReceived);
 
   /* Mark the initial time for the TimeObject.s */
   TimeObject::setup();
@@ -360,10 +446,8 @@ void setup() {
   loop
 */
 void loop() {
-  /* MQTT Client */
+  /* MQTT Client and OTA */
   Connection::loop();
   /* Periodic actions */
   TimeObject::loop();
-  /* OTA */
-  ArduinoOTA.handle();
 }

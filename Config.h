@@ -73,7 +73,8 @@ static const uint32_t brokerMQTTRetryCount = 60;
 /*------------------------------------------------------------------------------
  * Keep alive for the connection to the MQTT broker
  */
-static const int kMQTTBrokerKeepAlive = 60; /* Not used with PubSubClient */
+static const int kMQTTBrokerKeepAlive = 60;
+static const int kMQTTSocketTimeout = 60;
 
 /*------------------------------------------------------------------------------
  * Timeout from the MQTT broker (in ms)
@@ -84,12 +85,42 @@ static const uint32_t kMQTTBrokerTimeout = 1000ul * 60ul;
  * Default temperature when the node is operational but not receiving a
  * setpoint.
  */
-static const float kDefaultTemperature = 18.0;
+static const float kDefaultTemperature = 19.0;
 
 /*------------------------------------------------------------------------------
  * Preferences namespace name and keys
  */
 static const char *const kPrefNamespaceName = "FirmRad";
 static const char *const kTemperatureOffsetKey = "TOff";
+
+/*------------------------------------------------------------------------------
+ * The heating period is 30 seconds.
+ */
+static const uint32_t kHeatingPeriod = 30ul * 1000ul;
+
+/*------------------------------------------------------------------------------
+ * The heating period est divided in slots in which the heater heats or not.
+ */
+static const uint32_t kHeatingSlots = 30ul; /* 30 time slots */
+
+/*------------------------------------------------------------------------------
+ * The heating slot duration
+ */
+static const uint32_t kHeatingSlotDuration = kHeatingPeriod / kHeatingSlots;
+
+static const float k50PercentPWM = ((float)kHeatingSlots) / 2.0;
+
+/*------------------------------------------------------------------------------
+ * The heating period is divided in temperature measurement slots. An average 
+ * temperature in the heating period can be computed
+ */
+static const uint32_t kTemperatureMeasurementSlots = 5ul; 
+
+/*------------------------------------------------------------------------------
+ * Parameters of the control law
+ */
+static const float kProportionalParameter = (float)kHeatingSlots * 0.8;
+static const float kIntegralParameter = 0.5;
+static const float kDerivativeParameter = 20.0;
 
 #endif

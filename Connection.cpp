@@ -14,19 +14,6 @@ Retryer wifiReconnectCount(wifiRetryCount, 10000);
 Retryer mqttReconnectCount(brokerMQTTRetryCount, 10000);
 
 /*------------------------------------------------------------------------------
- * Identifier of the setpoint message, the mode message and the IP request
- * message
- */
-extern String messageSetpoint;
-extern String messageMode;
-extern String messageRequest;
-
-/*------------------------------------------------------------------------------
- * handler for MQTT incoming messages
- */
-extern void messageReceived(const String &topic, const String &payload);
-
-/*------------------------------------------------------------------------------
  * Client for the WiFi connection
  */
 WiFiClient Connection::sNet;
@@ -55,13 +42,15 @@ String Connection::sName = "";
  * Function pointer to call user subscriptions function
  */
 Connection::SubscriptionFunction Connection::sSubs = NULL;
+Connection::MessageHandlingFunction Connection::sHandler = NULL;
 
 /*------------------------------------------------------------------------------
  * sets up the connection
  */
-void Connection::begin(String &inName, SubscriptionFunction inSubFunction) {
+void Connection::begin(String &inName, SubscriptionFunction inSubFunction, MessageHandlingFunction inHandler) {
   sName = inName;
   sSubs = inSubFunction;
+  sHandler = inHandler;
 }
 
 /*------------------------------------------------------------------------------
@@ -85,7 +74,9 @@ void Connection::callback(char *inTopic, byte *inPayload,
       buf[i] = inPayload[i];
     }
     buf[i] = '\0';
-    messageReceived(String(inTopic), String(buf));
+    if (sHandler != NULL) {
+      sHandler(String(inTopic), String(buf));
+    }
   }
 }
 
@@ -225,6 +216,8 @@ void Connection::update() {
         DEBUG_PLN("trouve");
         sClient.setServer(sBrokerIP, 1883);
         sClient.setCallback(callback);
+        sClient.setKeepAlive(kMQTTBrokerKeepAlive);
+        sClient.setSocketTimeout(kMQTTSocketTimeout);
         sState = MDNS_OK;
       } else {
         DEBUG_PLN("absent");
@@ -291,7 +284,10 @@ void Connection::update() {
 
 /*------------------------------------------------------------------------------
  */
-void Connection::loop() { sClient.loop(); }
+void Connection::loop() {
+  sClient.loop();
+  ArduinoOTA.handle();
+}
 
 /*------------------------------------------------------------------------------
  */
